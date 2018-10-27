@@ -22,6 +22,7 @@
 #include "ATen/core/IdWrapper.h"
 #include "ATen/core/Macros.h"
 #include "c10/util/C++17.h"
+#include "c10/util/Metaprogramming.h"
 #include "c10/util/Exception.h"
 #include "caffe2/core/macros.h"
 
@@ -168,22 +169,18 @@ inline void _PlacementNewNotDefault(void* /*ptr*/, size_t /*n*/) {
       " is not default-constructible.");
 }
 
-template<
-    typename T,
-    c10::guts::enable_if_t<std::is_default_constructible<T>::value>* = nullptr>
+template<class T>
 inline constexpr TypeMetaData::PlacementNew* _PickPlacementNew() {
-  return
-    (std::is_fundamental<T>::value || std::is_pointer<T>::value)
-    ? nullptr
-    : &_PlacementNew<T>;
-}
-
-template<
-    typename T,
-    c10::guts::enable_if_t<!std::is_default_constructible<T>::value>* = nullptr>
-inline constexpr TypeMetaData::PlacementNew* _PickPlacementNew() {
-  static_assert(!std::is_fundamental<T>::value && !std::is_pointer<T>::value, "this should have picked the other SFINAE case");
-  return &_PlacementNewNotDefault<T>;
+  using c10::guts::if_constexpr;
+  return if_constexpr<std::is_fundamental<T>::value || std::is_pointer<T>::value>(
+     /* then */ [](auto) { return nullptr; },
+     /* else */ [](auto) {
+         return if_constexpr<std::is_default_constructible<T>::value>(
+           /* then */ [](auto) { return &_PlacementNew<T>; },
+           /* else */ [](auto) { return &_PlacementNewNotDefault<T>; }
+         );
+       }
+  );
 }
 
 template <typename T>
@@ -234,24 +231,18 @@ inline void _CopyNotAllowed(const void* /*src*/, void* /*dst*/, size_t /*n*/) {
       " does not allow assignment.");
 }
 
-template<
-    typename T,
-    c10::guts::enable_if_t<std::is_copy_assignable<T>::value>* = nullptr
-    >
-inline constexpr TypeMetaData::Copy* _PickCopy() {
-  return
-    (std::is_fundamental<T>::value || std::is_pointer<T>::value)
-    ? nullptr
-    : &_Copy<T>;
-}
-
-template<
-    typename T,
-    c10::guts::enable_if_t<!std::is_copy_assignable<T>::value>* = nullptr
-    >
-inline constexpr TypeMetaData::Copy* _PickCopy() {
-  static_assert(!std::is_fundamental<T>::value && !std::is_pointer<T>::value, "this should have picked the other SFINAE case");
-  return &_CopyNotAllowed<T>;
+template<class T>
+inline constexpr TypeMetaData::Copy* _PickCopy() noexcept {
+  using c10::guts::if_constexpr;
+  return if_constexpr<std::is_fundamental<T>::value || std::is_pointer<T>::value>(
+     /* then */ [](auto) { return nullptr; },
+     /* else */ [](auto) {
+         return if_constexpr<std::is_copy_assignable<T>::value>(
+           /* then */ [](auto) { return &_Copy<T>; },
+           /* else */ [](auto) { return &_CopyNotAllowed<T>; }
+         );
+       }
+  );
 }
 
 /**
