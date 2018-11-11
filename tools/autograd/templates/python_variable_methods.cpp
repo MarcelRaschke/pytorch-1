@@ -111,6 +111,14 @@ static PyObject * THPVariable_get_device(PyObject* self_, PyObject* args)
   END_HANDLE_TH_ERRORS
 }
 
+static PyObject * THPVariable_storage_offset(PyObject* self_, PyObject* args)
+{
+  HANDLE_TH_ERRORS
+  auto& self = reinterpret_cast<THPVariable*>(self_)->cdata;
+  return wrap(self.storage_offset());
+  END_HANDLE_TH_ERRORS
+}
+
 static PyObject * THPVariable_dim(PyObject* self, PyObject* args)
 {
    HANDLE_TH_ERRORS
@@ -251,7 +259,12 @@ static PyObject * THPVariable_invert(PyObject* self, PyObject* args) {
 
 static Tensor dispatch_to(const Tensor & self, Device device, bool non_blocking, bool copy) {
   AutoNoGIL no_gil;
-  return self.to(device, non_blocking, copy);
+  // NOTE: this is where we record aten::to in the graph during tracing. However, the behavior of aten::to
+  // is different with respect to TensorOptions fields that are not present: aten::to inherits fields that
+  // are missing from the self argument while the tracer assumes that they should be populated with the
+  // default values (eg. float for scalar type). By explicitly copying over the tensor options here we fully
+  // specify all tensor options and thus record the proper trace
+  return self.to(self.options().device(device), non_blocking, copy);
 }
 
 static Tensor dispatch_to(const Tensor & self, ScalarType dtype, bool non_blocking, bool copy) {
@@ -388,6 +401,18 @@ static PyObject * THPVariable_requires_grad_(PyObject* self, PyObject* args, PyO
   }
   self_.set_requires_grad(requires_grad);
   return THPVariable_Wrap(self_);
+  END_HANDLE_TH_ERRORS
+}
+
+inline bool dispatch_is_contiguous(Tensor & self) {
+  return self.is_contiguous();
+}
+
+static PyObject * THPVariable_is_contiguous(PyObject* self_, PyObject* args)
+{
+  HANDLE_TH_ERRORS
+  auto& self = reinterpret_cast<THPVariable*>(self_)->cdata;
+  return wrap(dispatch_is_contiguous(self));
   END_HANDLE_TH_ERRORS
 }
 
@@ -630,6 +655,7 @@ PyMethodDef variable_methods[] = {
   {"get_device", (PyCFunction)THPVariable_get_device, METH_NOARGS, NULL},
   {"half", (PyCFunction)THPVariable_half, METH_NOARGS, NULL},
   {"int", (PyCFunction)THPVariable_int, METH_NOARGS, NULL},
+  {"is_contiguous", (PyCFunction)THPVariable_is_contiguous, METH_NOARGS, NULL},
   {"item", (PyCFunction)THPVariable_item, METH_NOARGS, NULL},
   {"long", (PyCFunction)THPVariable_long, METH_NOARGS, NULL},
   {"map_", (PyCFunction)THPVariable_map_, METH_VARARGS | METH_KEYWORDS, NULL},
@@ -648,6 +674,7 @@ PyMethodDef variable_methods[] = {
   {"short", (PyCFunction)THPVariable_short, METH_NOARGS, NULL},
   {"size", (PyCFunction)THPVariable_size, METH_VARARGS | METH_KEYWORDS, NULL},
   {"storage", (PyCFunction)THPVariable_storage, METH_NOARGS, NULL},
+  {"storage_offset", (PyCFunction)THPVariable_storage_offset, METH_NOARGS, NULL},
   {"storage_type", (PyCFunction)THPVariable_storage_type, METH_NOARGS, NULL},
   {"stride", (PyCFunction)THPVariable_stride, METH_VARARGS | METH_KEYWORDS, NULL},
   {"to", (PyCFunction)THPVariable_to, METH_VARARGS | METH_KEYWORDS, NULL},

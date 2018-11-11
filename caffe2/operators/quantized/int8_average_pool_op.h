@@ -5,6 +5,7 @@
 #include "caffe2/core/operator.h"
 #include "caffe2/core/tensor_int8.h"
 #include "caffe2/operators/conv_pool_op_base.h"
+#include "caffe2/operators/quantized/int8_simd.h"
 #include "caffe2/operators/quantized/int8_utils.h"
 
 namespace caffe2 {
@@ -169,7 +170,7 @@ class Int8AveragePoolOp final : public ConvPoolOpBase<CPUContext> {
     CHECK_EQ(Y_offset, X.zero_point);
     CHECK_EQ(Y_scale, X.scale);
 
-    CHECK_EQ(X.t.ndim(), 4);
+    CHECK_EQ(X.t.dim(), 4);
     const int channels = X.t.dim32(3);
     ConvPoolOpBase<CPUContext>::SetOutputSize(X.t, &(Y->t), channels);
 
